@@ -1,0 +1,276 @@
+
+\title{Transliteration with Neural Sequence to Sequence Networks }
+\author{ 
+        Karl-Heinz Krachenfels\\
+        CIS, LMU-Munich, Germany 
+}
+\date{July 26, 20217}
+
+\documentclass[11pt,twocolumn]{article}
+\usepackage[unicode]{hyperref}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage[section]{placeins}
+%\usepackage{apalike}
+\usepackage{natbib}
+\bibpunct{(}{)}{;}{a}{,}{,}
+\usepackage{perpage} %the perpage package
+\MakePerPage{footnote} %the perpage package command
+\usepackage{pbox}
+
+\begin{document}
+\maketitle
+
+\begin{abstract} \noindent In this work we investigate the performance of different sequence to sequence architectures (seq2seq) for transliteration. We start our investigation with simple transliteration tasks based on artificially generated transliterations which easily demonstrate some of the key characteristics of the different seq2seq models. Specifically we investigate the seq2seq models based on LSTMs and Bi-LSTMs and show how they compare to encoder-decoder architectures as described in \cite{cho2014learning}. We then show the effect of adding an attention mechanism as described in \cite{bahdanau2014neural}. In the last part of the paper we visualize the attention matrix for some examples that illustrate different aspects of the attention mechanism. 
+\end{abstract}
+
+\section{Introduction}
+\subsection{Motivation}
+Recurrent neural networks (RNNs) are well suited for NLP problems where we need to map a source sequence of characters, words or phonemes to a corresponding target sequence. Examples of such problems are machine translation, speech recognition, speech synthesis, part of speech tagging and named entity recognition to name a few. 
+One of the main reasons for the success of RNNs is their ability in keeping context over long distances. RNNs can thus be seen as neural networks with a sort of memory. RNN based neural networks are therefore of great interest for NLP related tasks because many traditional models don't look at word order at all as e.g bag of words models or only look at local contexts as e.g. n-gram models. 
+RNNs are also a promising approach for language models where structure is relevant. Examples are \cite{dyer2015transition} who develop a new control structure for a stack LSTM to implement a dependency parser and \cite{bowman2016fast} who develop a tree-structured neural network that is also based on a combination of a LSTM with a stack.
+
+One last point to mention, is that in contrast to other neural models like convolutional neural networks (CNNs), RNNs are ideally suited for variable length input due to their recurrent nature.
+
+\subsection{Recent History of RNNs}
+In the ninties there was a raise in the interest of recursive neural networks (RNNs). One of the neural architectures developed at this time was the Elman network with a sort of feedback loop for each hidden neuron, see \cite{elman1990finding}. Unfortunately these networks were not able to model long distance dependencies. The problem was formally studied by a student of J\"urgen Schmidhuber who came up with the theory for the so called vanishing/expolding gradient problem. As a neural architecture to overcome this problem the LSTM was invented, see \cite{Hochreiter95longshort-term}, \cite{hochreiter1997long}.  
+
+\section{Models}
+
+\subsection{seq2seq with LSTM}
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.3\textwidth]{images/lstm.png}
+    \caption{Illustration of a sequence to sequence architecture based on a LSTM}
+        \label{fig:seq2seq}
+\end{figure}
+seq2seq architectures read a input sequence of varying length and map it to an output sequence. If we apply such models to language tasks then a simple network architecture consists of 3 layers:
+\begin{itemize}
+\item{An embedding layer that maps a one hot encoding of an input symbol, which in our experiments will be a mapping of a character 
+into a fixed size dense vector.}
+\item{A recurrent layer which takes as input the dense vector from the embedding layer, it computes an output and feeds back its hidden state to the recurrent layer for the next timestep. For our experiments we use a LSTM layer, but a GRU layer, see \cite{chung2014empirical},would be possible as well.}
+\item{A softmax layer takes the output and maps it to a target symbol, which is a character in our experiments.}
+\end{itemize}
+\subsection{Bidirectional LSTM}
+Assume a transliteration model where the sequence $aaa$ is transliterated to $a$ and $bbb$ to $b$. In figure \ref{fig:seq2seq} you can see that after mapping the first $a$ of the input sequence to a $a$ of the output sequence the LSTM has no way to determine the next output symbol because it has no way to look into the future. The model would have to take into consideration the inputs at positions 2,3,4 to determine the right output. This problem can be solved by a bidirectional LSTM (Bi-LSTM) as shown in figure \ref{fig:bilstm} where a LSTM that works in reverse order determines the right context for the given position.
+The idea of combining two recurrent networks to a bidirectional recurrent network (BRNN) goes back to \cite{schuster1997bidirectional}. BRNNs unfold their full potential when combined with the LSTM concept, see \cite{graves2005framewise}. 
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.3\textwidth]{images/bi-lstm.png}
+    \caption{Illustration of a sequence to sequence with Bi-LSTM}
+        \label{fig:bilstm}
+\end{figure}
+
+\subsection{Encoder-Decoder Architectures}
+Another architectural variant for seq2seq mapping is the encoder-decoder architecture. In the simplest variant of this architecture the input is padded with an $E$ symbol and fed into a encoder RNN. The end state of the Encoder state is then fed into a decoder RNN that generates the target sequence. \cite{sutskever2014sequence} successfully applied this architecture for word based machine translation and achieved state of the art results. A natural intuition is that the encoder models the source language while the decoder models the target language. 
+
+\cite{cho2014learning} extend the seq2seq architecture by conditioning each step of the decoder on a context. As context they take the last hidden state of the encoder. For our experiments we use a variant of this model where the decoder output state at time $t-1$ is not fed back into the decoder at time step $t$. Our model is shown in figure \ref{fig:enc-dec}. With this simplification we get a end to end differentiable model which is comparable to models with greedy search as opposed to those decoders that use beam search.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.4\textwidth]{images/enc-dec.png}
+    \caption{Illustration of an encoder-decoder architecture conditioned on the last encoder state}
+    \label{fig:enc-dec}
+\end{figure}
+
+\subsection{Encoder-Decoder Architecture with Attention}
+Instead of conditioning on one context vector from the encoder \cite{bahdanau2014neural} introduced the encoder-decoder architecture with attention. The idea of attention is to condition each time step of the decoder on the best matching time step of the encoder. This is done by learning an alignment function a
+$$e_{ij} =a(s_{i},h_j)$$
+that calculates the energy between an encoder time step $j$ and the decoder step $i$.
+For the decoder state at time step $i$ we now can compute the activation score $\alpha_{ij}$ by applying a softmax function
+$$\alpha_{ij}=\frac{exp(e_{ij})}{\sum_{k=1}^{T_x}{exp(e_{ik})}}$$
+Based on the activation scores $\alpha_{ij}$ and the hidden states of the decoder we now can compute a context vector that is an additional input signal to the decoder at the next timestep $s_t$, see figure \ref{fig:bahdanau}.
+$$c_i= \sum_{j=1}^{T_x}{\alpha_{ij}h_j}$$
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.35\textwidth]{images/bahdanau2014neural.png}
+    \caption{Illustration of an encoder-decoder architecture with attention, from \cite{bahdanau2014neural}}
+    \label{fig:bahdanau}
+\end{figure}
+\subsection{Calculation of the Attention Score}
+The attention can be an arbitrary function that takes an  encoder hidden vector $h_j$ at time step $j$ and a decoder hidden vector $s_i$ at time step $i$ and scores the correlation of the two. We can calculate the attention energy $e_{ij}$ then by either (see \cite{neubig2017neural})
+\begin{itemize}
+\item a dot product, $e_{i,j}=h_{j}^T s_{i}$,
+\item a bilinear function, $e_{i,j}=h_{j}^T W_{\alpha} s_{i}$,
+\item a neural network with a hidden layer (MLP).
+\end{itemize}
+ For our experiments we use an attention function consisting of a MLP with the same hidden layer size as the size of the encoder layer and the decoder layers.
+
+\section{The Toy Problem}
+\subsection{Description}
+The artificial problem that we use to illustrate some of the core characteristics of seq2seq neural networks uses transliterations generated with the following list of transliteration pairs:
+\begin{verbatim}
+  [('k','g'),('t','d'),('p','b'),
+  ('erl','la'),('e','ae'),
+  ('er','a'),('lade','laad')
+  ('a','a'),('b','b'),('c','c'),
+  ...,('z','z')]
+\end{verbatim}
+In order to generate one word pair we sample n random elements from the transliteration table, where n is a random integer number drawn from a uniform distribution between $minlength$ and $maxlength$. A random sample for $n=3$ could e.g. look like:
+\begin{verbatim}
+  ('u','u')
+  ('k','g')
+  ('erl','la')
+\end{verbatim}
+and the corresponding transliteration pair would be
+\begin{verbatim}
+  ('ukerl', 'ugla')
+\end{verbatim}
+\section{Experiments}
+\subsection{Generating Data for the Experiments}
+For our experiments we generate 300000 word pairs with a random length between 1 and 15.
+We train the network with learning rate $\eta=0.1$. Furthermore we generate a test set of size
+100 word pairs and measure the loss against the validation set 100 times during the training.
+
+\subsection{Model description and parameters}
+We used the following parameters for our model:
+\begin{verbatim}
+  embedding_size=10
+  encoder_size=128            
+  decoder_size=128          
+  attention_hidden_layer_size=128 
+\end{verbatim}
+For the LSTM variants we use 128 as size for the LSTM layer(s).
+We generated the output sequence up to the point when the end symbol was generated which was also part of the target sequence during the training or up to a maximum length of two times the input length. The loss function that we used for training was the negative log loss for the prediction of each character in the softmax layer.
+
+\section{Results}
+\subsection{Learning Curves}
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.5\textwidth]{images/result-learning-curves.png}
+    \caption{Loss on toy problem task }
+    \label{fig:losses}
+\end{figure}
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.5\textwidth]{images/results-revert.png}
+    \caption{Loss on task to revert the character order }
+    \label{fig:losses-revert}
+\end{figure}
+We conducted the experiments on the toy problem and on a problem to just revert strings. The results are shown in figure \ref{fig:losses} and figure \ref{fig:losses-revert}. We can see that the toy problem where the challenge is to do alignment over small distances is a less hard problem. We believe that the missing ability to handle right context is the reason why the results for the LSTM are quite bad while the Bi-LSTM delivers good results. Nevertheless the Bi-LSTM cannot handle some transliterations probably when the distance between corresponding alignment positions becomes too large.
+For the string reversion problem both LSTM and Bi-LSTM network fail. In this case it seems that the encoder-decoder might come up with a good solution after very long training, while  the encoder-decoder with attention converges quick to a solution with zero loss. It seems that we should adapt some of the hyper parameters concerning learning rate, optimizer, etc. to get rid of the peaks in the learning curve of the encoder-decoder with attention.
+
+\subsection{Qualitative Results}
+The table shows the transliteration for a longer problem. It seems that the Bi-LSTM performs on a high level. The Bi-LSTM fails in the revert string problem, see figure \ref{fig:losses-revert}
+
+\begin{tabular}{ |c|c|c|} 
+
+ \hline
+  & petersfr\"ankischemarmelade  \\ 
+  \hline
+ LSTM &baedlsfreamarmaelaad \\ 
+   \hline
+Bi-LSTM &baedasfrengischaemarmaelaad \\ 
+   \hline
+Enc-Dec &baedasfreeeiiclaaaaaa \\ 
+ \hline
+Enc-Dec+Att &baedasfrengischaemarmlaad \\ 
+  \hline
+\end{tabular}
+
+\section{Analysis of attention weights}
+\subsection{Practical Alignment Problem}
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.25\textwidth]{images/peter_weights.png}
+    \caption{$peter \rightarrow baeda$}
+    \label{fig:baeda}
+\end{figure}
+The matrix in figure \ref{fig:baeda} for the transliteration for $peter \rightarrow baeda$  shows that the attention mediates the alignment between input sequence and output sequence. You can nicely see how the attention matrix shows the position where a transliteration replaces one character on the source with two on the target side ($e \rightarrow ae$) and also where two characters on the source side are replaced with one character on the target side ($er \rightarrow a$).
+\subsection{Synthetic Alignments}
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.15\textwidth]{images/aaa-a-staircase.png}
+    \caption{Transliteration of $aaa \rightarrow  a, bbb \rightarrow  b, ...$}
+    \label{fig:a-aaa}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.325\textwidth]{images/a-aaa-staircase.png}
+    \caption{Transliteration of $a \rightarrow aaa, b \rightarrow bbb,...$}
+    \label{fig:aaa-a}
+\end{figure}
+In figure  \ref{fig:a-aaa} and figure \ref{fig:aaa-a} you can see how a encoder-decoder architecture with attention handles the cases where the transliterations replace multiple characters on the left side with one character on the right side and vice versa.
+
+We trained a network with an additional transliteration pair $abcd \rightarrow dcba.$
+We tested the encoder-decoder network with attention with the input sequence $abcdabcdabcdabcd$. 
+You can see that the attention matrix focuses on the end of each segment.
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.3\textwidth]{images/abcd-dcba.png}
+    \caption{We added the rule $ abcd -> dcba $ and tested on $abcdabcdabcdabcd$}
+\end{figure}
+
+\subsection{Long Distance Example}
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.275\textwidth]{images/laufen-glaufa.png}
+    \caption{Long distance transliteration by adding a $g$ at the beginning depending on the end of the input sequence. Here the word pair is $laufen \rightarrow glaufa$}
+    \label{fig:longdist}
+\end{figure}
+We extended our transliteration table and added 30 additional copies of the pair $en \rightarrow a $ and additionally added a rule
+that was applied at the end of the generator algorithm that added a $g$ at the beginning of each target word when the source word ended with $en$. An example word pair could be $ laufen \rightarrow glaufa$. 
+
+If we look into the weight matrix (figure \ref{fig:longdist}) we can see that the attention weights put some focus on the end state of the encoder, which can be interpreted as taking into account the end of the source sequence. In the case that there is a $en$ the decoder decides to put a $g$ at the beginning of the output sequence. We tested this behavior also with longer sequences and saw that it worked quite well while the Bi-LSTM  failed on the longer sequences in this case.
+
+\subsection{Premature Network Example}
+In this experiment we wanted to find out the effect of attention in a not yet perfectly trained network. To do this trained our original model on a smaller set of only 100000 word pairs. We then tested with the word $petersfr$\"a$nkischemarmelade$. We found that the pattern of the attention weights clearly shows the place where the output gets fuzzy and incorrect.
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.3\textwidth]{images/premature-marmelade-net.png}
+    \caption{Premature transliteration of $petersfr\ddot{a}nkischemarmelade \rightarrow baedas frengischaemaaaalaa$}
+\end{figure}
+
+\subsection{Revert String Examples}
+Figure \ref{fig:revert} shows a simple example matrix for a string reversion. Figure \ref{fig:confuse-start} shows an example of a longer sequence where the neural network confuses the start of the result sequence and where the result sequence is shorter. Figure \ref{fig:omit-part} shows a sequence where a middle part is omitted.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.3\textwidth]{images/revert.png}
+    \caption{Reversion of  $marmelade \rightarrow edalemram $}
+    \label{fig:revert}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.3\textwidth]{images/revert-forget-beginning.png}
+    \caption{Reversion of long string where the beginning of the result string is confused $petersfraenkischemarmelade \rightarrow leehcsiknearfsretep $}
+    \label{fig:confuse-start}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.275\textwidth]{images/revert-forget.png}
+    \caption{Reversion of sequence where the decoder forgets a part in the middle}
+    \label{fig:omit-part}
+\end{figure}
+
+\section{Conclusion and Future Work }
+\subsection{Conclusion }
+We believe that the invention of attention is one of the big innovations in NMT and also other deep learning fields during the last years. We found it  interesting to inspect the attention weights and we believe that the weight matrix makes the mechanisms in the Neural Net more interpretable. 
+We can directly see some internal mechanisms like long distance dependencies in the matrix which work well with attention and are not solved by any of the other architectures over long distances. We can also see that as soon as the weights loose focus the quality of the output sequence decreases and the network starts to stumble. The framework that we used i.e. dynet, was easy to use and removed much of the burden you normally cope with in typical seq2seq implementations like varying length  of the sequences, extra dimension to support mini-batches and easy to use APIs. The framework also offers some tweaks under the hood, e.g. a modification to the LSTM architecture that results in some performance gains, see \cite{neubig2017neural}.
+
+\subsection{Future Work}
+While our experiments mostly focus on simple transliteration tasks with simple alignments problems we believe that encoder-decoder networks are suited for harder tasks like generating morphological forms. An architecture for generating morphological forms could be achieved by conditioning the decoder on a signal that determines the desired form or by concatenating a potentially embedded form signal to the input vectors.
+
+Other directions of research could go into feeding in context from different modalities, example tasks are multi-modal translation and image captioning based on attention on the features of an image, see \cite{xu2015show}.
+
+As we have seen in the examples, one of the main deficiencies of the encoder-decoder models is coverage, i.e. the problem that the decoder neither should omit parts nor add additional parts or repeat itself. One research direction to address this are Pointer Networks, see \cite{vinyals2015pointer}. \cite{tu2016modeling} introduce a coverage vector to keep track of the parts that are already covered and \cite{see2017get} use a combination of pointer network and coverage vector to generate summarizations.
+
+Another interesting research direction is to use the attention mechanism not only to align but also to model structural properties.
+An example is shown in  \cite{allamanis2016convolutional}, who use a convolutional attention mechanism to detect short and long range attentual features on a task to summarize source code.
+
+Last but not least we find it interesting to research how the different character based approaches for tranliteration, morphology, translation can be integrated into one system that jointly solves the translation task.
+
+%\bibliographystyle{abbrv}
+\bibliographystyle{abbrvnat}
+%\bibliographystyle{plainnat} 
+% or try abbrvnat or unsrtnat
+
+\bibliography{../mybib}
+
+\end{document}
+
+  
